@@ -17,8 +17,8 @@
 %% External exports (should only be used by the 'p1_mysql_conn' module)
 %%--------------------------------------------------------------------
 -export([
-	 do_old_auth/7,
-	 do_new_auth/8
+	 do_old_auth/8,
+	 do_new_auth/9
 	]).
 
 %%--------------------------------------------------------------------
@@ -51,9 +51,9 @@
 %% Descrip.: Perform old-style MySQL authentication.
 %% Returns : result of p1_mysql_conn:do_recv/3
 %%--------------------------------------------------------------------
-do_old_auth(Sock, RecvPid, SeqNum, User, Password, Salt1, LogFun) ->
+do_old_auth(Sock, RecvPid, SeqNum, User, Password, UserFlags, Salt1, LogFun) ->
     Auth = password_old(Password, Salt1),
-    Packet2 = make_auth(User, Auth),
+    Packet2 = make_auth(User, Auth, UserFlags),
     do_send(Sock, Packet2, SeqNum, LogFun),
     p1_mysql_conn:do_recv(LogFun, RecvPid, SeqNum).
 
@@ -71,9 +71,9 @@ do_old_auth(Sock, RecvPid, SeqNum, User, Password, Salt1, LogFun) ->
 %% Descrip.: Perform MySQL authentication.
 %% Returns : result of p1_mysql_conn:do_recv/3
 %%--------------------------------------------------------------------
-do_new_auth(Sock, RecvPid, SeqNum, User, Password, Salt1, Salt2, LogFun) ->
+do_new_auth(Sock, RecvPid, SeqNum, User, Password, UserFlags, Salt1, Salt2, LogFun) ->
     Auth = password_new(Password, Salt1 ++ Salt2),
-    Packet2 = make_new_auth(User, Auth, none),
+    Packet2 = make_new_auth(User, Auth, none, UserFlags),
     do_send(Sock, Packet2, SeqNum, LogFun),
     case p1_mysql_conn:do_recv(LogFun, RecvPid, SeqNum) of
 	{ok, Packet3, SeqNum2} ->
@@ -105,9 +105,11 @@ password_old(Password, Salt) ->
 			     end, L)).
 
 %% part of do_old_auth/4, which is part of mysql_init/4
-make_auth(User, Password) ->
-    Caps = ?LONG_PASSWORD bor ?LONG_FLAG
-	bor ?TRANSACTIONS bor ?FOUND_ROWS,
+make_auth(User, Password, UserFlags) ->
+    Flags = lists:append(UserFlags, [?LONG_PASSWORD, ?LONG_FLAG, ?TRANSACTIONS, ?FOUND_ROWS]),
+    Caps = lists:foldl(fun(Flag, TCaps) when is_integer(Flag) ->
+                           TCaps bor Flag
+                       end, 0, Flags),
     Maxsize = 0,
     UserB = list_to_binary(User),
     PasswordB = Password,
@@ -115,16 +117,19 @@ make_auth(User, Password) ->
     PasswordB/binary>>.
 
 %% part of do_new_auth/4, which is part of mysql_init/4
-make_new_auth(User, Password, Database) ->
+make_new_auth(User, Password, Database, UserFlags) ->
     DBCaps = case Database of
 		 none ->
 		     0;
 		 _ ->
 		     ?CONNECT_WITH_DB
 	     end,
-    Caps = ?LONG_PASSWORD bor ?LONG_FLAG bor ?TRANSACTIONS bor
-	?PROTOCOL_41 bor ?SECURE_CONNECTION bor DBCaps
-	bor ?FOUND_ROWS,
+    Flags = lists:append(UserFlags, [?LONG_PASSWORD, ?LONG_FLAG, ?TRANSACTIONS,
+                                     ?PROTOCOL_41, ?SECURE_CONNECTION,
+                                     ?FOUND_ROWS]),
+    Caps = lists:foldl(fun(Flag, TCaps) when is_integer(Flag) ->
+                           TCaps bor Flag
+                       end, DBCaps, Flags),
     Maxsize = ?MAX_PACKET_SIZE,
     UserB = list_to_binary(User),
     PasswordL = size(Password),
