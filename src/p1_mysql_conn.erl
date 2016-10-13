@@ -159,6 +159,8 @@ post_start(Pid, _LogFun) ->
 	    p1_mysql:log(_LogFun, error, "p1_mysql_conn: post_start timeout~n",
 		      []),
 	    stop(Pid),
+	    timer:sleep(100),
+	    catch exit(Pid, kill),
 	    {error, "timed out"}
     end.
 
@@ -224,7 +226,7 @@ wait_fetch_result(TRef, Pid) ->
 	    wait_fetch_result(TRef, Pid);
 	{timeout, TRef, _Info} ->
 	    stop(Pid),
-	    {error, "query timed out"}
+	    {error, #p1_mysql_result{error="query timed out"}}
     end.
 
 stop(Pid) ->
